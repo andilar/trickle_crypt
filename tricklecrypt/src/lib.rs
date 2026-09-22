@@ -1,14 +1,13 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+#![no_std]
+#![forbid(unsafe_code)]
+#![doc = include_str!("../../README.md")]
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod error;
+mod key;
+mod record;
+mod session;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use error::Error;
+pub use key::{NoncePrefix, SecretKey};
+pub use record::{HEADER_SIZE, KEY_SIZE, NONCE_PREFIX_SIZE, TAG_SIZE};
+pub use session::{DecryptSession, EncryptSession, RecordProgress};

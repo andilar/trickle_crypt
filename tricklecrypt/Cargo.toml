@@ -2,5 +2,13 @@
 name = "tricklecrypt"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.81"
+description = "Bounded-work authenticated encryption records for embedded devices"
+license = "Apache-2.0"
+readme = "../README.md"
+keywords = ["cryptography", "embedded", "no-std", "aead"]
+categories = ["cryptography", "embedded", "no-std"]
 
 [dependencies]
+chacha20poly1305 = { version = "0.10.1", default-features = false }
+zeroize = { version = "1.8", default-features = false }
