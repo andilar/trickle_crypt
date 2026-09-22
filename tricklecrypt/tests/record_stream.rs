@@ -68,12 +68,8 @@ fn wrong_key_is_rejected() {
     let progress = encryptor()
         .encrypt_next(b"secret", &mut record, true)
         .unwrap();
-    let mut decryptor = DecryptSession::new(
-        SecretKey::new([0x99; 32]),
-        PREFIX,
-        MAX_RECORD,
-    )
-    .unwrap();
+    let mut decryptor =
+        DecryptSession::new(SecretKey::new([0x99; 32]), PREFIX, MAX_RECORD).unwrap();
 
     let error = decryptor
         .decrypt_next(&record[..progress.written], &mut [0_u8; MAX_RECORD])
