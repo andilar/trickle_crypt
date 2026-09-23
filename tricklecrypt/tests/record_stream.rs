@@ -158,3 +158,161 @@ fn finished_session_cannot_be_reused() {
         Error::AlreadyFinished
     );
 }
+
+#[test]
+fn invalid_configuration_and_empty_non_final_record_are_rejected() {
+    assert!(matches!(
+        EncryptSession::new(SecretKey::new(KEY), PREFIX, 0),
+        Err(Error::InvalidMaxRecordSize)
+    ));
+
+    let error = encryptor()
+        .encrypt_next(b"", &mut [0_u8; OVERHEAD], false)
+        .unwrap_err();
+    assert_eq!(error, Error::EmptyRecord);
+}
+
+#[test]
+fn malformed_headers_are_rejected() {
+    let mut output = [0_u8; MAX_RECORD];
+
+    assert_eq!(
+        decryptor().decrypt_next(&[0_u8; OVERHEAD - 1], &mut output),
+        Err(Error::InputTooShort {
+            minimum: OVERHEAD,
+            actual: OVERHEAD - 1,
+        })
+    );
+
+    let mut record = encrypted_record(b"payload", true);
+    record[0] ^= 1;
+    assert_eq!(
+        decryptor().decrypt_next(&record, &mut output),
+        Err(Error::InvalidHeader)
+    );
+
+    let mut record = encrypted_record(b"payload", true);
+    record[2] = 2;
+    assert_eq!(
+        decryptor().decrypt_next(&record, &mut output),
+        Err(Error::UnsupportedVersion(2))
+    );
+
+    let mut record = encrypted_record(b"payload", true);
+    record[3] = 0x80;
+    assert_eq!(
+        decryptor().decrypt_next(&record, &mut output),
+        Err(Error::InvalidHeader)
+    );
+}
+
+#[test]
+fn declared_length_and_decryption_output_capacity_are_checked() {
+    let mut record = encrypted_record(b"payload", true);
+    record[15] += 1;
+    assert_eq!(
+        decryptor().decrypt_next(&record, &mut [0_u8; MAX_RECORD]),
+        Err(Error::InvalidHeader)
+    );
+
+    let record = encrypted_record(b"payload", true);
+    assert_eq!(
+        decryptor().decrypt_next(&record, &mut [0_u8; 6]),
+        Err(Error::OutputTooSmall {
+            required: 7,
+            available: 6,
+        })
+    );
+}
+
+#[test]
+fn nonce_prefix_mismatch_is_rejected() {
+    let record = encrypted_record(b"payload", true);
+    let mut decryptor = DecryptSession::new(
+        SecretKey::new(KEY),
+        NoncePrefix::new([0x25; 16]),
+        MAX_RECORD,
+    )
+    .unwrap();
+
+    assert_eq!(
+        decryptor.decrypt_next(&record, &mut [0_u8; MAX_RECORD]),
+        Err(Error::AuthenticationFailed)
+    );
+}
+
+#[test]
+fn authentication_failure_does_not_advance_session() {
+    let record = encrypted_record(b"payload", true);
+    let mut corrupted = record.clone();
+    *corrupted.last_mut().unwrap() ^= 1;
+    let mut decryptor = decryptor();
+    let mut output = [0xAA_u8; MAX_RECORD];
+
+    assert_eq!(
+        decryptor.decrypt_next(&corrupted, &mut output),
+        Err(Error::AuthenticationFailed)
+    );
+    assert_eq!(&output[..7], &[0_u8; 7]);
+    assert!(!decryptor.is_finished());
+
+    let progress = decryptor.decrypt_next(&record, &mut output).unwrap();
+    assert_eq!(&output[..progress.written], b"payload");
+    assert!(decryptor.is_finished());
+}
+
+#[test]
+fn duplicate_record_and_finished_decryptor_are_rejected() {
+    let mut encryptor = encryptor();
+    let mut first = [0_u8; MAX_RECORD + OVERHEAD];
+    let first_len = encryptor
+        .encrypt_next(b"first", &mut first, false)
+        .unwrap()
+        .written;
+    let mut final_record = [0_u8; MAX_RECORD + OVERHEAD];
+    let final_len = encryptor
+        .encrypt_next(b"final", &mut final_record, true)
+        .unwrap()
+        .written;
+    let mut decryptor = decryptor();
+    let mut output = [0_u8; MAX_RECORD];
+
+    decryptor
+        .decrypt_next(&first[..first_len], &mut output)
+        .unwrap();
+    assert_eq!(
+        decryptor.decrypt_next(&first[..first_len], &mut output),
+        Err(Error::UnexpectedSequence {
+            expected: 1,
+            actual: 0,
+        })
+    );
+
+    decryptor
+        .decrypt_next(&final_record[..final_len], &mut output)
+        .unwrap();
+    assert_eq!(
+        decryptor.decrypt_next(&final_record[..final_len], &mut output),
+        Err(Error::AlreadyFinished)
+    );
+}
+
+#[test]
+fn version_one_wire_format_vector_is_stable() {
+    let record = encrypted_record(b"secret", true);
+    let expected: &[u8] = &[
+        0x54, 0x43, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x06, 0x91, 0x54, 0xc7, 0xb1, 0xcd, 0xba, 0x18, 0x20, 0xf6, 0xfd, 0xa4, 0xac, 0x5c, 0xf5,
+        0xd3, 0x0b, 0xd9, 0x72, 0x11, 0x16, 0x8a, 0x52,
+    ];
+    assert_eq!(record, expected);
+}
+
+fn encrypted_record(plaintext: &[u8], final_record: bool) -> Vec<u8> {
+    let mut record = vec![0_u8; plaintext.len() + OVERHEAD];
+    let progress = encryptor()
+        .encrypt_next(plaintext, &mut record, final_record)
+        .unwrap();
+    record.truncate(progress.written);
+    record
+}

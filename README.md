@@ -6,6 +6,9 @@ processes one size-limited, independently authenticated record at a time.
 
 > **Security status:** This project is experimental and has not received an
 > independent security audit. Do not use it to protect production data yet.
+> See the [security policy](SECURITY.md) and
+> [audit preparation](docs/security-audit-preparation.md) for reporting,
+> assumptions, and the proposed review scope.
 
 ## Design
 
